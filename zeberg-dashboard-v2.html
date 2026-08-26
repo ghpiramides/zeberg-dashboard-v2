@@ -1077,9 +1077,31 @@ function updateRegime(sc) {
     ).join('');
 }
 
+async function loadFromCache() {
+    try {
+        const r = await fetch('./data.json?t=' + Date.now());
+        if (!r.ok) return false;
+        const json = await r.json();
+        if (!json.series) return false;
+        let loaded = 0;
+        for (const id of Object.keys(SERIES)) {
+            const rawData = json.series[id];
+            if (!rawData || !rawData.length) { updateCardError(id, 'Not in cache'); continue; }
+            const proc = process(id, rawData);
+            if (proc && proc.length) { store[id] = proc; updateCard(id, proc); loaded++; }
+            else { updateCardError(id, 'Processing failed'); }
+        }
+        if (!loaded) return false;
+        const age = json.fetched ? new Date(json.fetched).toLocaleString('en-US') : '?';
+        document.getElementById('lastUpdated').textContent = `Data: ${age}`;
+        updateRegime(computeScores());
+        showBanner('success', `${loaded} of ${Object.keys(SERIES).length} series loaded from cache`, `Last fetch: ${age}`);
+        setTimeout(() => document.getElementById('statusBanner').classList.add('hidden'), 4000);
+        return true;
+    } catch(e) { return false; }
+}
+
 async function refreshAll() {
-    const key = localStorage.getItem('fredApiKey');
-    if (!key) { document.getElementById('noApiWarning').classList.remove('hidden'); return; }
     document.getElementById('noApiWarning').classList.add('hidden');
     document.getElementById('statusBanner').classList.add('hidden');
     const btn = document.getElementById('refreshBtn');
@@ -1090,25 +1112,33 @@ async function refreshAll() {
         const sEl = document.getElementById(`sig-${id}`);
         if (sEl) { sEl.textContent = 'loading'; sEl.className = 'badge badge-gray mt-1'; }
     });
+
+    // Try pre-fetched data.json first (no CORS, no API key needed)
+    const cached = await loadFromCache();
+    if (cached) { btn.textContent = '↻ REFRESH'; btn.disabled = false; return; }
+
+    // Fall back to live FRED API calls
+    const key = localStorage.getItem('fredApiKey');
+    if (!key) { document.getElementById('noApiWarning').classList.remove('hidden'); btn.textContent = '↻ REFRESH'; btn.disabled = false; return; }
+
     const ids = Object.keys(SERIES), failed = [], succeeded = [];
     await Promise.allSettled(ids.map(async (id, i) => {
-        await new Promise(r => setTimeout(r, i * 120)); // stagger 120ms apart
+        await new Promise(r => setTimeout(r, i * 120));
         const result = await fetchSeries(id);
         if (!result.ok) { failed.push({ id, error: result.error }); updateCardError(id, result.error); return; }
         const proc = process(id, result.data);
-        if (!proc || !proc.length) { failed.push({ id, error: 'Processing failed (not enough data?)' }); updateCardError(id, 'Processing failed'); return; }
+        if (!proc || !proc.length) { failed.push({ id, error: 'Processing failed' }); updateCardError(id, 'Processing failed'); return; }
         store[id] = proc; succeeded.push(id); updateCard(id, proc);
     }));
     if (failed.length === ids.length) {
-        showBanner('error', `All ${ids.length} FRED series failed`, `First error: "${failed[0]?.error || 'Unknown'}" — Check your API key, or open via a web server (⚙).`);
+        showBanner('error', `All ${ids.length} FRED series failed`, `First error: "${failed[0]?.error || 'Unknown'}" — Check your API key.`);
     } else if (failed.length > 0) {
         showBanner('warning', `${succeeded.length} of ${ids.length} series loaded — ${failed.length} failed`, `Failed: ${failed.map(f => f.id).join(', ')}`);
     } else {
         showBanner('success', `All ${succeeded.length} series loaded`, '');
         setTimeout(() => document.getElementById('statusBanner').classList.add('hidden'), 3000);
     }
-    const sc = computeScores();
-    updateRegime(sc);
+    updateRegime(computeScores());
     document.getElementById('lastUpdated').textContent = 'Updated: ' + new Date().toLocaleString('en-US');
     btn.textContent = '↻ REFRESH'; btn.disabled = false;
 }
