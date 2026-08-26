@@ -104,7 +104,12 @@
                 <p class="mt-1">Then navigate to: <span class="text-blue-400">http://localhost:8080/zeberg-dashboard.html</span></p>
             </div>
             <input id="apiKeyInput" type="password" placeholder="Paste your FRED API key here..."
-                class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white mb-4 outline-none focus:border-blue-600">
+                class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white mb-2 outline-none focus:border-blue-600">
+            <button onclick="testApiKey()"
+                class="w-full py-1.5 text-xs border border-gray-700 text-gray-400 hover:bg-gray-800 rounded mb-2 transition-colors">
+                🔍 Test key first (diagnose)
+            </button>
+            <div id="testResult" class="hidden mb-3 p-2 rounded text-xs border"></div>
             <div class="flex gap-2">
                 <button onclick="saveApiKey()"
                     class="flex-1 py-2 text-sm bg-blue-700 hover:bg-blue-600 rounded transition-colors font-bold">
@@ -1048,6 +1053,37 @@ async function refreshAll() {
     updateRegime(sc);
     document.getElementById('lastUpdated').textContent = 'Updated: ' + new Date().toLocaleString('en-US');
     btn.textContent = '↻ REFRESH'; btn.disabled = false;
+}
+
+async function testApiKey() {
+    const k = document.getElementById('apiKeyInput').value.trim();
+    const el = document.getElementById('testResult');
+    el.classList.remove('hidden');
+    if (!k) {
+        el.className = 'mb-3 p-2 rounded text-xs border border-yellow-900 text-yellow-400';
+        el.textContent = '⚠ Enter a key first.';
+        return;
+    }
+    el.className = 'mb-3 p-2 rounded text-xs border border-gray-700 text-gray-400';
+    el.textContent = 'Testing directly against FRED...';
+    try {
+        const url = `https://api.stlouisfed.org/fred/series?series_id=CFNAI&api_key=${k}&file_type=json`;
+        const r = await fetch(url);
+        const d = await r.json().catch(() => null);
+        if (!r.ok || (d && d.error_code)) {
+            el.className = 'mb-3 p-2 rounded text-xs border border-red-900 text-red-400';
+            el.textContent = `❌ FRED says: ${d?.error_message || 'HTTP ' + r.status} — API key is invalid or wrong`;
+        } else if (d && d.seriess && d.seriess.length) {
+            el.className = 'mb-3 p-2 rounded text-xs border border-green-900 text-green-400';
+            el.textContent = `✅ Key works! FRED responded OK. Problem is CORS/proxy. Scroll down...`;
+        } else {
+            el.className = 'mb-3 p-2 rounded text-xs border border-yellow-900 text-yellow-400';
+            el.textContent = `⚠ Unexpected: ${JSON.stringify(d).substring(0, 80)}`;
+        }
+    } catch(e) {
+        el.className = 'mb-3 p-2 rounded text-xs border border-orange-900 text-orange-400';
+        el.textContent = `⚠ CORS/network error (key may still be valid): ${e.message}`;
+    }
 }
 
 function showApiModal() {
