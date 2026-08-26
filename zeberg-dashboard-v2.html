@@ -784,7 +784,24 @@ async function fetchSpreadFromComponents() {
             } catch(e) {}
             return { ok: false, data: null, error: 'Local proxy failed for ' + sid };
         }
-        return await fetchComponentJsonp(sid, key, limit);
+        const directUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${sid}&api_key=${key}&file_type=json&sort_order=desc&limit=${limit}`;
+        const proxies = [
+            `https://corsproxy.io/?${encodeURIComponent(directUrl)}`,
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
+            `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(directUrl)}`,
+        ];
+        for (const proxyUrl of proxies) {
+            try {
+                const r = await doFetch(proxyUrl);
+                if (r.ok) { corsProxyUsed = true; return r; }
+            } catch(e) { /* next */ }
+        }
+        try {
+            const d = await fetchViaJsonp(directUrl);
+            return parseObservations(d);
+        } catch(e) {
+            return { ok: false, data: null, error: 'All methods failed for ' + sid };
+        }
     }
     const [r10, r2] = await Promise.all([fetchComponent('DGS10'), fetchComponent('DGS2')]);
     if (!r10.ok) return { ok: false, data: null, error: `DGS10 failed: ${r10.error}` };
@@ -811,14 +828,28 @@ async function fetchSeries(id) {
         }
     }
 
-    // GitHub Pages: use JSONP — FRED officially supports this for browser use
+    // GitHub Pages: CORS proxies first, JSONP as last resort
     if (id === 'T10Y2Y') return await fetchSpreadFromComponents();
+
+    const direct = fredObsUrl(id, key);
+    const proxies = [
+        `https://corsproxy.io/?${encodeURIComponent(direct)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(direct)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(direct)}`,
+    ];
+    for (const proxyUrl of proxies) {
+        try {
+            const result = await doFetch(proxyUrl);
+            if (result.ok) { corsProxyUsed = true; return result; }
+        } catch(e) { /* try next */ }
+    }
+
+    // Last resort: JSONP
     try {
-        const url = fredObsUrl(id, key);
-        const d = await fetchViaJsonp(url);
+        const d = await fetchViaJsonp(direct);
         return parseObservations(d);
     } catch(e) {
-        return { ok: false, data: null, error: `JSONP failed: ${e.message}` };
+        return { ok: false, data: null, error: `All methods failed. Last: ${e.message}` };
     }
 }
 
