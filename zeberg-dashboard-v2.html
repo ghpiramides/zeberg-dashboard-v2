@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeberg Macro Regime Dashboard - By LU</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body {
+            background-color: #080b14;
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+        }
+        .card {
+            background: #0e1420;
+            border: 1px solid #1e2d4a;
+            border-radius: 8px;
+            padding: 16px;
+            transition: background 0.2s;
+        }
+        .card:hover { background: #111a2e; }
+        .regime-bar {
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(to right, #ef4444, #f97316, #f59e0b, #84cc16, #10b981);
+            position: relative;
+        }
+        .regime-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: white;
+            border: 2px solid #0e1420;
+            position: absolute;
+            top: -3px;
+            transform: translateX(-50%);
+            transition: left 1s ease;
+        }
+        .sparkline-wrap { height: 55px; margin-top: 8px; }
+        .badge {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+        }
+        .badge-green  { background: rgba(16,185,129,0.15); color: #10b981; }
+        .badge-yellow { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .badge-orange { background: rgba(249,115,22,0.15); color: #f97316; }
+        .badge-red    { background: rgba(239,68,68,0.15);  color: #ef4444; }
+        .badge-gray   { background: rgba(107,114,128,0.15); color: #9ca3af; }
+        .section-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .loading-pulse { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        #apiModal { backdrop-filter: blur(4px); }
+        .check-row { display: flex; align-items: center; gap: 6px; font-size: 11px; margin: 3px 0; }
+        .check-yes { color: #10b981; }
+        .check-no  { color: #4b5563; }
+        .gauge-label {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            bottom: 2px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .gauge-wrap { position: relative; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-6">
+
+<div class="max-w-7xl mx-auto">
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+        <div>
+            <h1 class="text-xl md:text-2xl font-bold text-white tracking-widest">ZEBERG MACRO REGIME DASHBOARD - By LU</h1>
+            <p class="text-xs text-gray-500 mt-0.5">Henrik Zeberg Business Cycle Model — Data: FRED (Federal Reserve Bank of St. Louis)</p>
+            <p class="text-xs text-gray-500 mt-0.5">Don't fking make the same mistakes twice. René and Lu's exit dashboard</p>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+            <span id="lastUpdated" class="text-xs text-gray-600">Not yet loaded</span>
+            <button onclick="refreshAll()" id="refreshBtn"
+                class="px-3 py-1.5 text-xs border border-blue-700 text-blue-400 hover:bg-blue-900/30 rounded transition-colors">
+                ↻ REFRESH
+            </button>
+            <button onclick="showApiModal()"
+                class="px-3 py-1.5 text-xs border border-gray-700 text-gray-400 hover:bg-gray-800 rounded transition-colors">
+                ⚙ API KEY
+            </button>
+        </div>
+    </div>
+
+    <!-- API KEY MODAL -->
+    <div id="apiModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden">
+        <div class="card w-full max-w-lg mx-4">
+            <h2 class="text-base font-bold mb-1 text-white">Set up FRED API Key</h2>
+            <p class="text-xs text-gray-400 mb-1">Register for free (1 minute) at:</p>
+            <p class="text-xs text-blue-400 mb-3 break-all">https://fred.stlouisfed.org/docs/api/api_key.html</p>
+            <div class="bg-gray-900/60 border border-gray-800 rounded p-3 mb-4 text-xs text-gray-400">
+                <p class="text-gray-300 font-bold mb-1">💡 Tip: open via local server for best results</p>
+                <p class="mb-1">Open Terminal and run:</p>
+                <code class="text-green-400 block bg-black/40 rounded px-2 py-1 select-all">cd ~/Claude-Code &amp;&amp; python3 -m http.server 8080</code>
+                <p class="mt-1">Then navigate to: <span class="text-blue-400">http://localhost:8080/zeberg-dashboard.html</span></p>
+            </div>
+            <input id="apiKeyInput" type="password" placeholder="Paste your FRED API key here..."
+                class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white mb-4 outline-none focus:border-blue-600">
+            <div class="flex gap-2">
+                <button onclick="saveApiKey()"
+                    class="flex-1 py-2 text-sm bg-blue-700 hover:bg-blue-600 rounded transition-colors font-bold">
+                    Save &amp; Load Data
+                </button>
+                <button onclick="closeApiModal()"
+                    class="px-4 py-2 text-sm border border-gray-700 rounded hover:bg-gray-800 transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONNECTION STATUS BANNER -->
+    <div id="statusBanner" class="card mb-4 hidden">
+        <div class="flex items-start gap-3">
+            <span id="statusIcon" class="text-lg mt-0.5">ℹ</span>
+            <div class="flex-1">
+                <p id="statusTitle" class="text-sm font-bold"></p>
+                <p id="statusDetail" class="text-xs text-gray-400 mt-0.5 break-all"></p>
+            </div>
+            <button onclick="document.getElementById('statusBanner').classList.add('hidden')"
+                class="text-gray-600 hover:text-gray-400 text-xs ml-2 shrink-0">✕</button>
+        </div>
+    </div>
+
+    <!-- NO API KEY WARNING -->
+    <div id="noApiWarning" class="card mb-5 border-yellow-900 bg-yellow-900/10 hidden">
+        <div class="flex items-center gap-3">
+            <span class="text-yellow-400 text-lg">⚠</span>
+            <div class="flex-1">
+                <p class="text-yellow-400 font-bold text-sm">No FRED API Key configured</p>
+                <p class="text-gray-500 text-xs">Click ⚙ API KEY to enter your free key. Register at fred.stlouisfed.org</p>
+            </div>
+            <button onclick="showApiModal()"
+                class="px-3 py-1.5 text-xs border border-yellow-800 text-yellow-400 rounded hover:bg-yellow-900/30 whitespace-nowrap">
+                Configure →
+            </button>
+        </div>
+    </div>
+
+    <!-- TOP ROW -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+        <div class="card">
+            <p class="text-xs text-gray-500 uppercase tracking-widest mb-3">Macro Regime Score</p>
+            <div class="flex items-start justify-between mb-4">
+                <div>
+                    <div id="regimeScore" class="text-6xl font-bold loading-pulse text-gray-600">--</div>
+                    <div id="regimeLabel" class="text-xs mt-1.5 text-gray-500">Loading...</div>
+                </div>
+                <div class="text-right">
+                    <div class="text-xs text-gray-600 mb-1">PHASE</div>
+                    <div id="regimePhase" class="text-base font-bold text-gray-500">--</div>
+                    <div id="regimeTitanic" class="text-xs text-gray-600 mt-1 italic"></div>
+                </div>
+            </div>
+            <div class="regime-bar mb-3">
+                <div id="regimeDot" class="regime-dot" style="left:50%"></div>
+            </div>
+            <div class="flex justify-between text-xs text-gray-600 mb-4">
+                <span>⚫ Crisis</span><span>🔴 Recession</span><span>🟠 Late</span><span>🟡 Euphoria</span><span>🟢 Expansion</span>
+            </div>
+            <div class="grid grid-cols-5 gap-1 pt-3 border-t border-gray-800/60">
+                <div class="text-center">
+                    <div id="sub-momentum" class="text-sm font-bold text-gray-600">--</div>
+                    <div class="text-xs text-gray-600 mt-0.5">Moment.</div>
+                    <div class="text-xs text-gray-700">30%</div>
+                </div>
+                <div class="text-center">
+                    <div id="sub-labor" class="text-sm font-bold text-gray-600">--</div>
+                    <div class="text-xs text-gray-600 mt-0.5">Labor</div>
+                    <div class="text-xs text-gray-700">20%</div>
+                </div>
+                <div class="text-center">
+                    <div id="sub-liquidity" class="text-sm font-bold text-gray-600">--</div>
+                    <div class="text-xs text-gray-600 mt-0.5">Liquid.</div>
+                    <div class="text-xs text-gray-700">25%</div>
+                </div>
+                <div class="text-center">
+                    <div id="sub-credit" class="text-sm font-bold text-gray-600">--</div>
+                    <div class="text-xs text-gray-600 mt-0.5">Credit</div>
+                    <div class="text-xs text-gray-700">15%</div>
+                </div>
+                <div class="text-center">
+                    <div id="sub-sentiment" class="text-sm font-bold text-gray-600">--</div>
+                    <div class="text-xs text-gray-600 mt-0.5">Sentiment</div>
+                    <div class="text-xs text-gray-700">10%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <p class="text-xs text-gray-500 uppercase tracking-widest mb-3">Zeberg Blow-Off Top Probability</p>
+            <div class="flex gap-4 items-start">
+                <div class="flex-1">
+                    <div class="gauge-wrap" style="height:100px;">
+                        <canvas id="blowOffCanvas" height="100"></canvas>
+                        <div id="blowOffPct" class="gauge-label text-gray-600">--%</div>
+                    </div>
+                </div>
+                <div class="flex-1">
+                    <div id="blowOffDesc" class="text-xs text-gray-500 mb-3 italic">Loading...</div>
+                    <div id="blowOffConditions" class="space-y-0.5"></div>
+                </div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-gray-800/60">
+                <p class="text-xs text-gray-600">
+                    <span class="text-gray-500">What is this?</span> High score = Zeberg's "Late Expansion" setup:
+                    macro weakens while markets still rise. This is the blow-off top before the crash.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ECONOMIC MOMENTUM -->
+    <div class="mb-5">
+        <h2 class="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
+            <span class="section-dot bg-blue-500"></span>
+            Economic Momentum
+        </h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="card" id="card-CFNAI">
+                <div class="text-xs text-gray-500">Chicago Fed CFNAI</div>
+                <div class="text-xs text-gray-700">Broad activity, &gt;0 = growth</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-CFNAI" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-CFNAI" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-CFNAI" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-CFNAI"></canvas></div>
+                <button onclick="toggleUitleg('cfnai-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="cfnai-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p>The <strong class="text-gray-300">Chicago Fed National Activity Index (CFNAI)</strong> is a "health gauge of the US economy". Think of it as a dashboard warning light showing how hard the engine is running — not for one company, but the entire economy. It combines <strong class="text-gray-300">85 different economic signals</strong> into one number: employment, production, housing, sales, inventories, income, and more.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">0 = normal</span> — Economy running at its historical average.<br>
+                    <span class="text-green-400 font-bold">Above 0</span> — Economy running faster than normal.<br>
+                    <span class="text-orange-400 font-bold">Below 0</span> — Economy running slower than normal.</p>
+                    <p class="text-gray-300 font-bold">Easy reference:</p>
+                    <p>+0.5 → "Economy feeling quite healthy."<br>
+                    0 → "Everything normal."<br>
+                    -0.5 → "Economy catching a cold."<br>
+                    <span class="text-red-400">-0.7 or lower (sustained) → "Watch out — recession risk rising."</span></p>
+                    <p class="text-gray-300 font-bold">Why investors care:</p>
+                    <p><span class="text-green-400">Strong (positive)</span> → companies earn more → good for stocks, but central bank keeps rates high.<br>
+                    <span class="text-orange-400">Weak (negative)</span> → rate cuts become likely → sometimes good for tech/crypto, bad if recession looms.</p>
+                    <p class="text-yellow-400">💡 Tip: don't look at one month. Use the <strong>3-month moving average (CFNAI-MA3)</strong> to see the real trend.</p>
+                </div>
+            </div>
+            <div class="card" id="card-INDPRO">
+                <div class="text-xs text-gray-500">Industrial Production</div>
+                <div class="text-xs text-gray-700">YoY % change</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-INDPRO" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-INDPRO" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-INDPRO" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-INDPRO"></canvas></div>
+                <button onclick="toggleUitleg('indpro-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="indpro-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">Industrial Production</strong> is America's factory and output thermometer. Are factories actually making things, are machines running, is energy being consumed?</p>
+                    <p class="text-gray-300 font-bold">What does it measure?</p>
+                    <p>Output across: cars 🚗, machinery ⚙️, chips 💻, steel 🏗️, energy ⚡, mining ⛏️.<br>
+                    <span class="text-green-400">Rising</span> → companies producing more.<br>
+                    <span class="text-orange-400">Falling</span> → economy cooling.</p>
+                    <p class="text-gray-300 font-bold">Capacity Utilization — even more interesting:</p>
+                    <p>Think of a restaurant: 50% = half-empty. 80% = busy, running well. 95% = staff stretched, fully packed.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">80%+</span> → Strong, businesses running hard.<br>
+                    <span class="text-yellow-400 font-bold">75%–80%</span> → Normal / slightly soft.<br>
+                    <span class="text-orange-400 font-bold">Below 75%</span> → Warning: slowdown or recession risk.<br>
+                    <span class="text-red-400 font-bold">85%+</span> → Running too hot — inflation risk.</p>
+                    <p class="text-gray-300 font-bold">Why investors care:</p>
+                    <p><span class="text-green-400">Strong production + high utilization</span> → good for cyclical stocks, but Fed keeps rates high longer.<br>
+                    <span class="text-orange-400">Falling production</span> → more chance of rate cuts → often favorable for tech/crypto.</p>
+                </div>
+            </div>
+            <div class="card" id="card-PAYEMS">
+                <div class="text-xs text-gray-500">Nonfarm Payrolls</div>
+                <div class="text-xs text-gray-700">MoM change (K jobs)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-PAYEMS" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-PAYEMS" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-PAYEMS" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-PAYEMS"></canvas></div>
+                <button onclick="toggleUitleg('payems-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="payems-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">Non Farm Payrolls (NFP)</strong> asks: "How many new jobs were added in America last month?" — <strong class="text-gray-300">America's job counter</strong>.</p>
+                    <p class="text-gray-300 font-bold">Why "non-farm"?</p>
+                    <p>Farm jobs fluctuate too much seasonally. Military and self-employed also excluded. Yet this still covers <strong class="text-gray-300">~80% of all US jobs</strong>.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">+250K</span> → Companies hiring massively. Economy strong.<br>
+                    <span class="text-green-400 font-bold">+150K</span> → Healthy, normal growth.<br>
+                    <span class="text-yellow-400 font-bold">+50K</span> → Economy slowing.<br>
+                    <span class="text-red-400 font-bold">0 or negative</span> → Alarm bell. Recession risk rising.</p>
+                    <p class="text-gray-300 font-bold">For stocks and crypto:</p>
+                    <p><span class="text-green-400">Very strong NFP</span> → good for banks/industry, but rates stay high — less good for tech/crypto.<br>
+                    <span class="text-yellow-400">Slightly weaker NFP</span> → often bullish for Nasdaq and crypto (rate cut coming).<br>
+                    <span class="text-red-400">Very bad NFP</span> → panic → stocks down.</p>
+                    <p class="text-yellow-400">💡 More jobs = stronger economy. But too strong keeps rates high — bad for tech/crypto.</p>
+                </div>
+            </div>
+            <div class="card" id="card-RSAFS">
+                <div class="text-xs text-gray-500">Retail Sales</div>
+                <div class="text-xs text-gray-700">YoY % change</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-RSAFS" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-RSAFS" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-RSAFS" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-RSAFS"></canvas></div>
+                <button onclick="toggleUitleg('rsafs-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="rsafs-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">Retail Sales YoY</strong> is <strong class="text-gray-300">America's spending meter</strong>: are Americans spending more or less than the same month last year?</p>
+                    <p>Consumers are <strong class="text-gray-300">the engine of the US economy</strong> — over 70% of the economy runs on what people buy: clothing 👕, cars 🚗, electronics 💻, restaurants 🍔, online shopping 📦.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">+5%+</span> → People spending freely. Economy strong.<br>
+                    <span class="text-green-400 font-bold">+2%–4%</span> → Healthy, normal growth.<br>
+                    <span class="text-yellow-400 font-bold">~0%</span> → People becoming cautious.<br>
+                    <span class="text-red-400 font-bold">Negative</span> → People buying less — economic warning.</p>
+                    <p class="text-gray-300 font-bold">The catch:</p>
+                    <p><span class="text-orange-400">Too strong</span> → Fed thinks "too hot → inflation stays" → rates high longer → bad for Nasdaq/crypto.</p>
+                    <p class="text-yellow-400">💡 When Americans stop shopping, the economy usually starts coughing.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LABOR MARKET -->
+    <div class="mb-5">
+        <h2 class="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
+            <span class="section-dot bg-yellow-500"></span>
+            Labor Market — Zeberg "Under Water" Monitor
+        </h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="card" id="card-UNRATE">
+                <div class="text-xs text-gray-500">Unemployment Rate</div>
+                <div class="text-xs text-gray-700">Lagging, but crucial</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-UNRATE" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-UNRATE" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-UNRATE" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-UNRATE"></canvas></div>
+                <button onclick="toggleUitleg('unrate-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="unrate-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p>The <strong class="text-gray-300">Unemployment Rate (UNRATE)</strong> measures how many people want to work but don't have a job.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">3%–4%</span> → Very strong economy.<br>
+                    <span class="text-green-400 font-bold">4%–5%</span> → Healthy, normal economy.<br>
+                    <span class="text-yellow-400 font-bold">5%–7%</span> → Economy cooling.<br>
+                    <span class="text-orange-400 font-bold">8%+</span> → Major problems.<br>
+                    <span class="text-red-400 font-bold">10%+</span> → Crisis level (like 2008 or Covid).</p>
+                    <p class="text-gray-300 font-bold">Rising unemployment isn't always bad:</p>
+                    <p><span class="text-yellow-400">Slight rise</span> → market thinks "Fed will cut rates" → often bullish for Nasdaq and crypto.<br>
+                    <span class="text-red-400">Too much rise</span> → recession fears → bearish for almost everything.</p>
+                    <p class="text-gray-300 font-bold">Difference from NFP:</p>
+                    <p>NFP = how many jobs added (car's speed 🚗)<br>
+                    UNRATE = how many people are jobless (engine temp 🌡️)</p>
+                    <p class="text-yellow-400">💡 Low unemployment = strong economy, but too low can cause inflation and hurt tech/crypto.</p>
+                </div>
+            </div>
+            <div class="card" id="card-ICSA">
+                <div class="text-xs text-gray-500">Initial Jobless Claims</div>
+                <div class="text-xs text-gray-700">Weekly (K persons)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-ICSA" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-ICSA" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-ICSA" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-ICSA"></canvas></div>
+            </div>
+            <div class="card" id="card-IC4WSA">
+                <div class="text-xs text-gray-500">4-Week Avg Claims</div>
+                <div class="text-xs text-gray-700">Smoothed (K persons)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-IC4WSA" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-IC4WSA" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-IC4WSA" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-IC4WSA"></canvas></div>
+                <button onclick="toggleUitleg('ic4wsa-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="ic4wsa-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">IC4WSA</strong> is <strong class="text-gray-300">America's layoff meter</strong>. Each week, the number of people filing for unemployment benefits for the first time is counted. The 4-week average filters out noise from snowstorms ❄️, strikes 🚧, or holidays 🎄 to show the <strong class="text-gray-300">real trend</strong>.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">180K–220K</span> → Few layoffs, strong labor market.<br>
+                    <span class="text-yellow-400 font-bold">250K–300K</span> → Companies becoming cautious.<br>
+                    <span class="text-red-400 font-bold">Hard rise above 300K</span> → Alarm 🚨 — early recession warning.</p>
+                    <p><span class="text-yellow-400">IC4WSA is often the first smoke alarm</span> — it's weekly and much faster than NFP or UNRATE.</p>
+                    <p class="text-gray-300 font-bold">For stocks and crypto:</p>
+                    <p><span class="text-green-400">Falling claims</span> → bullish for stocks.<br>
+                    <span class="text-yellow-400">Slightly rising</span> → rate cut closer → bullish for Nasdaq/crypto.<br>
+                    <span class="text-red-400">Exploding claims</span> → recession fear → bearish for everything.</p>
+                    <p class="text-yellow-400">💡 When IC4WSA rises fast, the economy starts coughing before you see it elsewhere.</p>
+                </div>
+            </div>
+            <div class="card" id="card-SAHMREALTIME">
+                <div class="text-xs text-gray-500">Sahm Rule Indicator</div>
+                <div class="text-xs text-gray-700">≥ 0.5 = recession trigger</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-SAHMREALTIME" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-SAHMREALTIME" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-SAHMREALTIME" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-SAHMREALTIME"></canvas></div>
+                <button onclick="toggleUitleg('sahm-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="sahm-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">SAHMREALTIME</strong> is <strong class="text-gray-300">America's recession smoke alarm</strong> — invented by economist Claudia Sahm. The question: is unemployment suddenly rising faster?</p>
+                    <p class="text-gray-300 font-bold">The Sahm Rule:</p>
+                    <p>When unemployment rises <strong class="text-gray-300">0.5% or more</strong> above its lowest point of the past year, history says a recession has often already begun.<br>
+                    Example: lowest rate = 3.5% → alarm triggers at <span class="text-red-400 font-bold">4.0%</span>.</p>
+                    <p class="text-gray-300 font-bold">How do you read the value?</p>
+                    <p><span class="text-green-400 font-bold">Below 0.3</span> → Nothing alarming.<br>
+                    <span class="text-yellow-400 font-bold">Toward 0.5</span> → ⚠️ Warning.<br>
+                    <span class="text-red-400 font-bold">0.5 or higher</span> → 🚨 Alarm — historically often already in recession.</p>
+                    <p class="text-gray-300 font-bold">⚠️ Nuance — 2024 lesson:</p>
+                    <p>In 2024 the alarm briefly triggered without a real recession. Even Claudia Sahm said: <em>"Take it easy, this time could be different."</em><br>
+                    Always use <span class="text-yellow-400">together with IC4WSA and UNRATE</span> — never in isolation.</p>
+                    <p class="text-yellow-400">💡 SAHMREALTIME is a smoke alarm. When unemployment rises too fast, it says: "Uh oh… something may be going wrong."</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LIQUIDITY -->
+    <div class="mb-5">
+        <h2 class="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
+            <span class="section-dot bg-green-500"></span>
+            Liquidity — Why is the market still rising?
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="card" id="card-WALCL">
+                <div class="text-xs text-gray-500">Fed Balance Sheet</div>
+                <div class="text-xs text-gray-700">WALCL — total assets (trillion $)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-WALCL" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-WALCL" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-WALCL" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-WALCL"></canvas></div>
+                <button onclick="toggleUitleg('walcl-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="walcl-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">WALCL</strong> is <strong class="text-gray-300">America's money tap</strong> — the Fed's total balance sheet. Is the Fed printing money, or pulling money out of the system?</p>
+                    <p>The Fed buys: government bonds 🇺🇸, mortgage bonds 🏠, emergency bank loans 🏦.<br>
+                    <strong class="text-gray-300">Buying more</strong> → more liquidity. <strong class="text-gray-300">Selling/stopping</strong> → money leaves.</p>
+                    <p class="text-gray-300 font-bold">Think of a garden 🌱</p>
+                    <p>📈 <span class="text-green-400">Balance growing</span> = more water 💧 = markets get support.<br>
+                    📉 <span class="text-red-400">Balance shrinking</span> = less water 🚿 = harder for stocks and crypto.</p>
+                    <p class="text-gray-300 font-bold">Two terms to know:</p>
+                    <p><strong class="text-green-400">QE (Quantitative Easing)</strong> — Fed buys a lot, pumps money in. Did this during 2008 and Covid → balance went from ~$4T to ~$9T.<br>
+                    <strong class="text-red-400">QT (Quantitative Tightening)</strong> — opposite. Balance shrinks slowly. Since 2022 peak it has come down significantly.</p>
+                    <p class="text-gray-300 font-bold">The big analogy:</p>
+                    <p>Interest rates = gas pedal/brake 🚗<br>
+                    Fed balance sheet = how much fuel in the tank ⛽<br>
+                    You can press the gas, but without fuel you won't get far 😄</p>
+                    <p class="text-yellow-400">💡 WALCL shows whether the Fed is pumping money in or pulling it out. More money = usually good for stocks and crypto.</p>
+                </div>
+            </div>
+            <div class="card" id="card-M2SL">
+                <div class="text-xs text-gray-500">M2 Money Supply</div>
+                <div class="text-xs text-gray-700">YoY % — negative = tight</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-M2SL" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-M2SL" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-M2SL" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-M2SL"></canvas></div>
+                <button onclick="toggleUitleg('m2sl-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="m2sl-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">M2SL</strong> is <strong class="text-gray-300">America's money-in-circulation meter</strong>. How much money is swimming around in the US economy?</p>
+                    <p>Think of America as one giant swimming pool 🏊 — M2 measures how much "usable money" is in it: cash 💵, checking accounts, savings, money market accounts, small bank deposits.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">M2 rising fast 📈</span> → more money → often bullish for risk assets.<br>
+                    <span class="text-yellow-400 font-bold">M2 growing slowly</span> → normal economy.<br>
+                    <span class="text-red-400 font-bold">M2 falling 📉</span> → liquidity removed → headwind for stocks and crypto.</p>
+                    <p class="text-gray-300 font-bold">For stocks &amp; crypto:</p>
+                    <p>M2 up = often good for Bitcoin, Nasdaq, growth stocks. Extra money seeks returns and flows into tech, AI, crypto.<br>
+                    ⚠️ Note the lag: M2 changes first → markets react months later.</p>
+                    <p class="text-gray-300 font-bold">Difference from WALCL:</p>
+                    <p>WALCL = water from the tap 🚿 (what the Fed does).<br>
+                    M2 = how much water is in the pool 🏊 (what's actually circulating).</p>
+                    <p class="text-yellow-400">💡 More money circulating = often good for stocks and crypto. Less money = tougher times for risk assets.</p>
+                </div>
+            </div>
+            <div class="card" id="card-FEDFUNDS">
+                <div class="text-xs text-gray-500">Fed Funds Rate</div>
+                <div class="text-xs text-gray-700">Effective policy rate (%)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-FEDFUNDS" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-FEDFUNDS" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-FEDFUNDS" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-FEDFUNDS"></canvas></div>
+                <button onclick="toggleUitleg('fedfunds-uitleg', this)"
+                    class="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    <span>ℹ What is this?</span><span class="toggle-arrow">▾</span>
+                </button>
+                <div id="fedfunds-uitleg" class="hidden mt-2 text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2 space-y-2">
+                    <p><strong class="text-gray-300">FEDFUNDS</strong> is arguably <strong class="text-gray-300">the most important economic indicator of all</strong> — America's interest rate dial. How expensive is it to borrow money?</p>
+                    <p>The Fed is behind the wheel of the US economy. The rate is their main control: give gas (lower) or brake (raise). It influences almost all other rates — mortgages 🏠, car loans 🚗, credit cards 💳, business loans 🏭, savings 💰.</p>
+                    <p class="text-gray-300 font-bold">How do you read it?</p>
+                    <p><span class="text-green-400 font-bold">Low (0%–2%)</span> → cheap to borrow → people buy homes, invest → often good for Nasdaq, tech and crypto 🚀<br>
+                    <span class="text-yellow-400 font-bold">Medium (3%–5%)</span> → normal economy.<br>
+                    <span class="text-red-400 font-bold">High (5%+)</span> → expensive → headwind for growth stocks and crypto 📉</p>
+                    <p class="text-gray-300 font-bold">The golden rule:</p>
+                    <p><span class="text-green-400">Lower rates</span> = usually bullish for tech and crypto — savings pay little, so money flows into Nasdaq, AI, Bitcoin.<br>
+                    <span class="text-red-400">Higher rates</span> = usually bearish — if savings pay 5%, why take big risks?</p>
+                    <p class="text-yellow-400">💡 FEDFUNDS is America's rate dial. Low rates accelerate stocks and crypto. High rates are the brake.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CREDIT & YIELD CURVES -->
+    <div class="mb-5">
+        <h2 class="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
+            <span class="section-dot bg-red-500"></span>
+            Credit &amp; Yield Curves — Zeberg "Iceberg" Signals
+        </h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="card" id="card-T10Y2Y">
+                <div class="text-xs text-gray-500">10Y − 2Y Spread</div>
+                <div class="text-xs text-gray-700">Inversion = danger</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-T10Y2Y" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-T10Y2Y" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-T10Y2Y" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-T10Y2Y"></canvas></div>
+            </div>
+            <div class="card" id="card-T10Y3M">
+                <div class="text-xs text-gray-500">10Y − 3M Spread</div>
+                <div class="text-xs text-gray-700">Strongest recession predictor</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-T10Y3M" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-T10Y3M" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-T10Y3M" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-T10Y3M"></canvas></div>
+            </div>
+            <div class="card" id="card-BAMLH0A0HYM2">
+                <div class="text-xs text-gray-500">High Yield Spread</div>
+                <div class="text-xs text-gray-700">Credit risk (%)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-BAMLH0A0HYM2" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-BAMLH0A0HYM2" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-BAMLH0A0HYM2" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-BAMLH0A0HYM2"></canvas></div>
+            </div>
+            <div class="card" id="card-STLFSI4">
+                <div class="text-xs text-gray-500">Financial Stress Index</div>
+                <div class="text-xs text-gray-700">St. Louis Fed FSI (&gt;0 = stress)</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-STLFSI4" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-STLFSI4" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-STLFSI4" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-STLFSI4"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MARKET PSYCHOLOGY -->
+    <div class="mb-6">
+        <h2 class="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
+            <span class="section-dot bg-purple-500"></span>
+            Market Psychology — Euphoria &amp; Panic
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="card" id="card-VIXCLS">
+                <div class="text-xs text-gray-500">VIX — Fear Index</div>
+                <div class="text-xs text-gray-700">&lt;15 = euphoria / &gt;30 = panic</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-VIXCLS" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-VIXCLS" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-VIXCLS" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-VIXCLS"></canvas></div>
+            </div>
+            <div class="card" id="card-UMCSENT">
+                <div class="text-xs text-gray-500">Consumer Sentiment (UMich)</div>
+                <div class="text-xs text-gray-700">&gt;90 = optimistic</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-UMCSENT" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-UMCSENT" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-UMCSENT" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-UMCSENT"></canvas></div>
+            </div>
+            <div class="card" id="card-RECPROUSM156N">
+                <div class="text-xs text-gray-500">Recession Probability (%)</div>
+                <div class="text-xs text-gray-700">Smoothed probability model</div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="val-RECPROUSM156N" class="text-xl font-bold text-gray-600">--</span>
+                    <span id="trend-RECPROUSM156N" class="text-xs text-gray-600"></span>
+                </div>
+                <span id="sig-RECPROUSM156N" class="badge badge-gray mt-1">loading</span>
+                <div class="sparkline-wrap"><canvas id="chart-RECPROUSM156N"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="text-center text-xs text-gray-700 pb-4 border-t border-gray-800/40 pt-4">
+        <p>Based on the Zeberg Business Cycle Model | Data: FRED API — Federal Reserve Bank of St. Louis</p>
+        <p class="mt-0.5">Not financial advice. For educational and analytical purposes only.</p>
+    </div>
+</div>
+
+<script>
+function toggleUitleg(id, btn) {
+    const el = document.getElementById(id);
+    const arrow = btn.querySelector('.toggle-arrow');
+    const hidden = el.classList.toggle('hidden');
+    arrow.textContent = hidden ? '▾' : '▴';
+}
+
+window.addEventListener('error', e => {
+    showBanner('error', 'JavaScript error', `${e.message} (${e.filename}:${e.lineno})`);
+});
+window.addEventListener('unhandledrejection', e => {
+    showBanner('error', 'Async error', String(e.reason));
+});
+
+const USE_PROXY = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+const SERIES = {
+    CFNAI:          { label: 'CFNAI',        unit: '',  dec: 2, limit: 48,  yoy: false, mom: false, div: 1        },
+    INDPRO:         { label: 'INDPRO',        unit: '%', dec: 1, limit: 48,  yoy: true,  mom: false, div: 1        },
+    PAYEMS:         { label: 'Payrolls',      unit: 'K', dec: 0, limit: 36,  yoy: false, mom: true,  div: 1        },
+    RSAFS:          { label: 'Retail Sales',  unit: '%', dec: 1, limit: 36,  yoy: true,  mom: false, div: 1        },
+    UNRATE:         { label: 'UNRATE',        unit: '%', dec: 1, limit: 60,  yoy: false, mom: false, div: 1        },
+    ICSA:           { label: 'Claims',        unit: 'K', dec: 0, limit: 104, yoy: false, mom: false, div: 1000     },
+    IC4WSA:         { label: '4W Claims',     unit: 'K', dec: 0, limit: 104, yoy: false, mom: false, div: 1000     },
+    SAHMREALTIME:   { label: 'Sahm',          unit: '',  dec: 2, limit: 48,  yoy: false, mom: false, div: 1        },
+    WALCL:          { label: 'Fed BS',        unit: 'T', dec: 2, limit: 156, yoy: false, mom: false, div: 1000000  },
+    M2SL:           { label: 'M2 YoY',        unit: '%', dec: 1, limit: 48,  yoy: true,  mom: false, div: 1        },
+    FEDFUNDS:       { label: 'FFR',           unit: '%', dec: 2, limit: 60,  yoy: false, mom: false, div: 1        },
+    T10Y2Y:         { label: '10Y-2Y',        unit: '%', dec: 2, limit: 500, yoy: false, mom: false, div: 1        },
+    T10Y3M:         { label: '10Y-3M',        unit: '%', dec: 2, limit: 500, yoy: false, mom: false, div: 1        },
+    BAMLH0A0HYM2:   { label: 'HY Spread',     unit: '%', dec: 2, limit: 500, yoy: false, mom: false, div: 1        },
+    STLFSI4:        { label: 'FSI',           unit: '',  dec: 2, limit: 156, yoy: false, mom: false, div: 1        },
+    VIXCLS:         { label: 'VIX',           unit: '',  dec: 1, limit: 500, yoy: false, mom: false, div: 1        },
+    UMCSENT:        { label: 'Sentiment',     unit: '',  dec: 1, limit: 120, yoy: false, mom: false, div: 1        },
+    RECPROUSM156N:  { label: 'Rec.%',         unit: '%', dec: 1, limit: 60,  yoy: false, mom: false, div: 1        },
+};
+
+const store  = {};
+const charts = {};
+
+function showBanner(type, title, detail) {
+    const banner = document.getElementById('statusBanner');
+    const colors = { error:'border-red-900 bg-red-900/10', warning:'border-yellow-900 bg-yellow-900/10', success:'border-green-900 bg-green-900/10', info:'border-blue-900 bg-blue-900/10' };
+    const icons  = { error:'🔴', warning:'⚠', success:'✅', info:'ℹ' };
+    const titleColors = { error:'text-red-400', warning:'text-yellow-400', success:'text-green-400', info:'text-blue-400' };
+    banner.className = `card mb-4 ${colors[type] || colors.info}`;
+    document.getElementById('statusIcon').textContent = icons[type] || 'ℹ';
+    const ttl = document.getElementById('statusTitle');
+    ttl.textContent = title;
+    ttl.className = `text-sm font-bold ${titleColors[type] || ''}`;
+    document.getElementById('statusDetail').textContent = detail || '';
+    banner.classList.remove('hidden');
+}
+
+let corsProxyUsed = false;
+
+function fredUrl(id) {
+    const key = localStorage.getItem('fredApiKey');
+    const cfg = SERIES[id];
+    if (USE_PROXY) return `/fred/series/observations?series_id=${id}&api_key=${key}&file_type=json&sort_order=desc&limit=${cfg.limit}`;
+    return `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${key}&file_type=json&sort_order=desc&limit=${cfg.limit}`;
+}
+
+async function doFetch(url) {
+    const r = await fetch(url);
+    let d;
+    try { d = await r.json(); } catch(_) { d = null; }
+    if (d && d.error_code) return { ok: false, data: null, error: `FRED error ${d.error_code}: ${d.error_message}` };
+    if (!r.ok)             return { ok: false, data: null, error: `HTTP ${r.status}` };
+    if (!d?.observations)  return { ok: false, data: null, error: 'No observations in response' };
+    const data = d.observations
+        .filter(o => o.value !== '.' && o.value !== '' && o.value != null)
+        .reverse()
+        .map(o => ({ date: o.date, raw: parseFloat(o.value) }))
+        .filter(o => !isNaN(o.raw));
+    if (!data.length) return { ok: false, data: null, error: 'Response contains no usable data' };
+    return { ok: true, data, error: null };
+}
+
+async function fetchSpreadFromComponents() {
+    const key = localStorage.getItem('fredApiKey');
+    const limit = 500;
+    async function fetchComponent(sid) {
+        const params = `series_id=${sid}&api_key=${key}&file_type=json&sort_order=desc&limit=${limit}`;
+        const localUrl  = `/fred/series/observations?${params}`;
+        const directUrl = `https://api.stlouisfed.org/fred/series/observations?${params}`;
+        try {
+            const r = await doFetch(USE_PROXY ? localUrl : directUrl);
+            if (r.ok) return r;
+            if (USE_PROXY) return r;
+        } catch(e) {
+            if (USE_PROXY) return { ok: false, data: null, error: e.message };
+        }
+        try {
+            const r = await doFetch(`https://corsproxy.io/?${encodeURIComponent(directUrl)}`);
+            if (r.ok) corsProxyUsed = true;
+            return r;
+        } catch(e) {
+            return { ok: false, data: null, error: e.message };
+        }
+    }
+    const [r10, r2] = await Promise.all([fetchComponent('DGS10'), fetchComponent('DGS2')]);
+    if (!r10.ok) return { ok: false, data: null, error: `DGS10 failed: ${r10.error}` };
+    if (!r2.ok)  return { ok: false, data: null, error: `DGS2 failed: ${r2.error}` };
+    const map2   = Object.fromEntries(r2.data.map(o => [o.date, o.raw]));
+    const spread = r10.data.filter(o => map2[o.date] !== undefined).map(o => ({ date: o.date, raw: o.raw - map2[o.date] }));
+    return spread.length ? { ok: true, data: spread, error: null } : { ok: false, data: null, error: 'No overlapping dates in DGS10/DGS2' };
+}
+
+async function fetchSeries(id) {
+    const key = localStorage.getItem('fredApiKey');
+    if (!key) return { ok: false, data: null, error: 'No API key configured' };
+
+    let p1;
+    try {
+        p1 = await doFetch(fredUrl(id));
+        if (p1.ok) return p1;
+        if (USE_PROXY) {
+            if (id === 'T10Y2Y') return await fetchSpreadFromComponents();
+            return p1;
+        }
+    } catch(e) {
+        if (USE_PROXY) {
+            if (id === 'T10Y2Y') return await fetchSpreadFromComponents();
+            return { ok: false, data: null, error: `Local proxy error: ${e.message}` };
+        }
+    }
+
+    // Fallback: CORS proxy (for GitHub Pages / file://)
+    try {
+        const direct = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${key}&file_type=json&sort_order=desc&limit=${SERIES[id].limit}`;
+        const result = await doFetch(`https://corsproxy.io/?${encodeURIComponent(direct)}`);
+        if (result.ok) { corsProxyUsed = true; return result; }
+        if (id === 'T10Y2Y') return await fetchSpreadFromComponents();
+        return result;
+    } catch(e) {
+        if (id === 'T10Y2Y') return await fetchSpreadFromComponents();
+        return { ok: false, data: null, error: `No connection possible: ${e.message}` };
+    }
+}
+
+function process(id, raw) {
+    if (!raw || !raw.length) return null;
+    const cfg = SERIES[id];
+    let pts = raw.map(d => ({ date: d.date, value: d.raw / cfg.div }));
+    if (cfg.yoy) {
+        const out = [];
+        for (let i = 12; i < pts.length; i++) {
+            const curr = pts[i].value, prev = pts[i-12].value;
+            if (prev !== 0) out.push({ date: pts[i].date, value: (curr - prev) / Math.abs(prev) * 100 });
+        }
+        return out.length ? out : null;
+    }
+    if (cfg.mom) {
+        const out = [];
+        for (let i = 1; i < pts.length; i++) out.push({ date: pts[i].date, value: pts[i].value - pts[i-1].value });
+        return out.length ? out : null;
+    }
+    return pts;
+}
+
+function latest(id) { const d = store[id]; return d && d.length ? d[d.length-1].value : null; }
+function trend(id, n=4) { const d = store[id]; if (!d || d.length < n+1) return 0; return d[d.length-1].value - d[d.length-1-n].value; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function scoreMomentum() {
+    const parts = [];
+    const cfnai = latest('CFNAI'); if (cfnai !== null) parts.push(clamp((cfnai+0.8)/1.3*100,0,100));
+    const indpro = latest('INDPRO'); if (indpro !== null) parts.push(clamp((indpro+3)/8*100,0,100));
+    const pay = latest('PAYEMS'); if (pay !== null) parts.push(clamp((pay+50)/350*100,0,100));
+    const rs = latest('RSAFS'); if (rs !== null) parts.push(clamp((rs+2)/8*100,0,100));
+    return parts.length ? parts.reduce((a,b)=>a+b,0)/parts.length : 50;
+}
+function scoreLaborStress() {
+    const parts = [];
+    const ur = latest('UNRATE'); if (ur !== null) parts.push(clamp((ur-3.5)/2.5*100,0,100));
+    const icsa = latest('ICSA'); if (icsa !== null) parts.push(clamp((icsa-200)/180*100,0,100));
+    const sahm = latest('SAHMREALTIME'); if (sahm !== null) parts.push(clamp(sahm/1.0*100,0,100));
+    return parts.length ? parts.reduce((a,b)=>a+b,0)/parts.length : 50;
+}
+function scoreLiquidity() {
+    const parts = [];
+    const walcl = store['WALCL'];
+    if (walcl && walcl.length > 8) parts.push(clamp(50+(walcl[walcl.length-1].value-walcl[walcl.length-9].value)*8,0,100));
+    const m2 = latest('M2SL'); if (m2 !== null) parts.push(clamp((m2+2)/9*100,0,100));
+    const ff = latest('FEDFUNDS'); if (ff !== null) parts.push(clamp(100-(ff-0.5)/5.5*100,0,100));
+    return parts.length ? parts.reduce((a,b)=>a+b,0)/parts.length : 50;
+}
+function scoreCredit() {
+    const parts = [];
+    const t2 = latest('T10Y2Y'); if (t2 !== null) parts.push(clamp((t2+1.2)/2.2*100,0,100));
+    const t3 = latest('T10Y3M'); if (t3 !== null) parts.push(clamp((t3+1.5)/2.8*100,0,100));
+    const hy = latest('BAMLH0A0HYM2'); if (hy !== null) parts.push(clamp(100-(hy-2.5)/8*100,0,100));
+    const fsi = latest('STLFSI4'); if (fsi !== null) parts.push(clamp(65-fsi*25,0,100));
+    return parts.length ? parts.reduce((a,b)=>a+b,0)/parts.length : 50;
+}
+function scoreSentiment() {
+    const parts = [];
+    const vix = latest('VIXCLS'); if (vix !== null) parts.push(clamp(100-(vix-9)/45*100,0,100));
+    const um = latest('UMCSENT'); if (um !== null) parts.push(clamp((um-48)/55*100,0,100));
+    const rec = latest('RECPROUSM156N'); if (rec !== null) parts.push(clamp(100-rec*1.4,0,100));
+    return parts.length ? parts.reduce((a,b)=>a+b,0)/parts.length : 50;
+}
+
+function computeScores() {
+    const m = scoreMomentum(), l = scoreLaborStress(), q = scoreLiquidity(), c = scoreCredit(), s = scoreSentiment();
+    const overall = m*0.30 + (100-l)*0.20 + q*0.25 + c*0.15 + s*0.10;
+    let bo = 0;
+    if (m >= 28 && m <= 68) bo += 25;
+    if (l >= 18 && l <= 65) bo += 25;
+    if (q > 48) bo += 20;
+    const vix = latest('VIXCLS'); if (vix !== null && vix < 22) bo += 20;
+    const t2 = latest('T10Y2Y'); if (t2 !== null && t2 < 0.6) bo += 10;
+    return { momentum: m, labor: l, liquidity: q, credit: c, sentiment: s, overall, blowOff: bo };
+}
+
+function regimeInfo(score) {
+    if (score >= 74) return { phase: 'EXPANSION',  titanic: '⛵ Smooth Sailing',       color: '#10b981', cls: 'text-green-400'  };
+    if (score >= 58) return { phase: 'LATE CYCLE', titanic: '🚢 Hitting the Iceberg',  color: '#f59e0b', cls: 'text-yellow-400' };
+    if (score >= 40) return { phase: 'SLOWDOWN',   titanic: '🧊 Iceberg struck',        color: '#f97316', cls: 'text-orange-400' };
+    if (score >= 22) return { phase: 'RECESSION',  titanic: '🌊 Ship sinking',          color: '#ef4444', cls: 'text-red-400'    };
+    return              { phase: 'CRISIS',      titanic: '🆘 SOS — Abandon ship',   color: '#ef4444', cls: 'text-red-500'    };
+}
+
+function signalFor(id, val) {
+    if (val === null || val === undefined || isNaN(val)) return { text: 'no data', cls: 'badge-gray' };
+    const G='badge-green', Y='badge-yellow', O='badge-orange', R='badge-red';
+    const r = (text, cls) => ({ text, cls });
+    switch(id) {
+        case 'CFNAI':        return val > 0.1  ? r('Expansion',G)          : val > -0.7 ? r('Moderate growth',Y)   : r('Recession signal',R);
+        case 'INDPRO':       return val > 2    ? r('Strong output',G)      : val > 0    ? r('Slightly positive',Y)  : val > -2 ? r('Weak',O) : r('Contraction',R);
+        case 'PAYEMS':       return val > 200  ? r('Strong growth',G)      : val > 75   ? r('Moderate growth',Y)    : val > 0 ? r('Weak',O) : r('Job losses',R);
+        case 'RSAFS':        return val > 3    ? r('Consumer strong',G)    : val > 0    ? r('Slightly positive',Y)  : r('Weakening',O);
+        case 'UNRATE':       return val < 4    ? r('Strong',G)             : val < 4.5  ? r('Normal',Y)             : val < 5.5 ? r('Weakening',O) : r('Weak',R);
+        case 'ICSA':         return val < 220  ? r('Claims low',G)         : val < 270  ? r('Normal',Y)             : val < 340 ? r('Rising',O) : r('Alert',R);
+        case 'IC4WSA':       return val < 220  ? r('Claims low',G)         : val < 270  ? r('Normal',Y)             : r('Caution',O);
+        case 'SAHMREALTIME': return val < 0.25 ? r('No signal',G)          : val < 0.5  ? r('Near trigger',Y)       : r('⚠ RECESSION TRIGGER',R);
+        case 'WALCL':        return trend('WALCL',8) > 0 ? r('QE / expanding',G) : r('QT / contracting',O);
+        case 'M2SL':         return val > 4    ? r('Monetary easing',G)    : val > 0    ? r('Neutral',Y)            : r('Monetary contraction',R);
+        case 'FEDFUNDS':     return val < 2.5  ? r('Accommodative',G)      : val < 4    ? r('Neutral',Y)            : val < 5.5 ? r('Restrictive',O) : r('Very restrictive',R);
+        case 'T10Y2Y':       return val > 0.6  ? r('Normal',G)             : val > 0.1  ? r('Flattening',Y)         : val > -0.5 ? r('Inversion',O) : r('Deep inversion',R);
+        case 'T10Y3M':       return val > 0.5  ? r('Normal',G)             : val > 0    ? r('Flattening',Y)         : r('Inversion',R);
+        case 'BAMLH0A0HYM2': return val < 3.5  ? r('Calm',G)               : val < 5    ? r('Elevated',Y)           : val < 7 ? r('Stress',O) : r('Extreme stress',R);
+        case 'STLFSI4':      return val < -0.3 ? r('Very loose',G)         : val < 0.3  ? r('Normal',Y)             : val < 1 ? r('Elevated',O) : r('Stress',R);
+        case 'VIXCLS':       return val < 15   ? r('Euphoria — caution',Y) : val < 20   ? r('Calm',G)               : val < 30 ? r('Elevated fear',O) : r('Panic',R);
+        case 'UMCSENT':      return val > 80   ? r('Optimistic',G)         : val > 65   ? r('Neutral',Y)            : val > 55 ? r('Pessimistic',O) : r('Very negative',R);
+        case 'RECPROUSM156N':return val < 8    ? r('Low risk',G)           : val < 20   ? r('Caution',Y)            : val < 45 ? r('High risk',O) : r('Recession likely',R);
+        default:             return r('', 'badge-gray');
+    }
+}
+
+const COLOR = { 'badge-green':'#10b981','badge-yellow':'#f59e0b','badge-orange':'#f97316','badge-red':'#ef4444','badge-gray':'#6b7280' };
+
+function renderSparkline(id, data, sigCls) {
+    const el = document.getElementById(`chart-${id}`);
+    if (!el || !data || !data.length) return;
+    if (charts[id]) charts[id].destroy();
+    const color = COLOR[sigCls] || '#6b7280';
+    const vals  = data.slice(-48).map(d => d.value);
+    charts[id] = new Chart(el.getContext('2d'), {
+        type: 'line',
+        data: { labels: vals.map((_,i)=>i), datasets: [{ data: vals, borderColor: color, backgroundColor: color+'20', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }] },
+        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend:{display:false}, tooltip:{enabled:false} }, scales: { x:{display:false}, y:{display:false} } }
+    });
+}
+
+function renderBlowOff(pct) {
+    const el = document.getElementById('blowOffCanvas');
+    if (!el) return;
+    if (charts['_blowOff']) charts['_blowOff'].destroy();
+    const color = pct >= 75 ? '#f97316' : pct >= 50 ? '#f59e0b' : pct >= 30 ? '#3b82f6' : '#374151';
+    charts['_blowOff'] = new Chart(el.getContext('2d'), {
+        type: 'doughnut',
+        data: { datasets: [{ data: [pct, 100-pct], backgroundColor: [color, '#1e293b'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: true, circumference: 180, rotation: -90, cutout: '68%', animation: { duration: 800 }, plugins: { legend:{display:false}, tooltip:{enabled:false} } }
+    });
+    document.getElementById('blowOffPct').textContent = pct + '%';
+    document.getElementById('blowOffPct').style.color = color;
+}
+
+function updateCardError(id, errorMsg) {
+    const vEl = document.getElementById(`val-${id}`);
+    if (vEl) { vEl.textContent = 'error'; vEl.style.color = '#ef4444'; vEl.classList.remove('loading-pulse'); }
+    const sEl = document.getElementById(`sig-${id}`);
+    if (sEl) { sEl.textContent = errorMsg.length > 40 ? errorMsg.substring(0,40)+'…' : errorMsg; sEl.className = 'badge badge-red mt-1'; }
+    const tEl = document.getElementById(`trend-${id}`);
+    if (tEl) tEl.textContent = '';
+}
+
+function updateCard(id, data) {
+    const cfg = SERIES[id];
+    if (!cfg) return;
+    const val = data && data.length ? data[data.length-1].value : null;
+    const tr  = data && data.length > 4 ? data[data.length-1].value - data[data.length-5].value : 0;
+    if (val === null || isNaN(val)) { updateCardError(id, 'No valid data'); return; }
+    const sig = signalFor(id, val);
+    let display;
+    try {
+        if (cfg.unit === 'K')      display = val.toFixed(0) + 'K';
+        else if (cfg.unit === 'T') display = val.toFixed(2) + 'T';
+        else if (cfg.unit === '%') display = val.toFixed(cfg.dec) + '%';
+        else                       display = val.toFixed(cfg.dec);
+    } catch(e) { display = String(val); }
+    const vEl = document.getElementById(`val-${id}`);
+    if (vEl) { vEl.textContent = display; vEl.style.color = COLOR[sig.cls] || '#6b7280'; vEl.classList.remove('loading-pulse'); }
+    const tEl = document.getElementById(`trend-${id}`);
+    if (tEl && !isNaN(tr)) {
+        const arrow = tr > 0.001 ? '↑' : tr < -0.001 ? '↓' : '→';
+        tEl.textContent = arrow + ' ' + Math.abs(tr).toFixed(cfg.dec);
+        tEl.style.color = tr > 0.001 ? '#10b981' : tr < -0.001 ? '#ef4444' : '#6b7280';
+    }
+    const sEl = document.getElementById(`sig-${id}`);
+    if (sEl) { sEl.textContent = sig.text; sEl.className = `badge ${sig.cls} mt-1`; }
+    try { renderSparkline(id, data, sig.cls); } catch(e) { console.warn(`Sparkline ${id}:`, e.message); }
+}
+
+function updateRegime(sc) {
+    const { momentum, labor, liquidity, credit, sentiment, overall, blowOff } = sc;
+    const ri = regimeInfo(overall);
+    const scoreEl = document.getElementById('regimeScore');
+    scoreEl.textContent = overall.toFixed(0);
+    scoreEl.style.color = ri.color;
+    scoreEl.classList.remove('loading-pulse');
+    document.getElementById('regimePhase').textContent = ri.phase;
+    document.getElementById('regimePhase').style.color  = ri.color;
+    document.getElementById('regimeTitanic').textContent = ri.titanic;
+    document.getElementById('regimeDot').style.left = clamp(overall, 2, 98) + '%';
+    const label = overall >= 74 ? 'Economy growing — markets strong' :
+                  overall >= 58 ? 'Euphoria zone — Zeberg blow-off setup active' :
+                  overall >= 40 ? 'Cracks visible — caution advised' :
+                  overall >= 22 ? 'Contraction — risk considerable' :
+                                  'System stress — extreme vigilance';
+    const lEl = document.getElementById('regimeLabel');
+    lEl.textContent = label; lEl.style.color = ri.color;
+    function setSub(elId, val, invert=false) {
+        const score = invert ? 100-val : val;
+        const color = score >= 68 ? '#10b981' : score >= 52 ? '#f59e0b' : score >= 35 ? '#f97316' : '#ef4444';
+        const el = document.getElementById(elId);
+        el.textContent = score.toFixed(0); el.style.color = color;
+    }
+    setSub('sub-momentum', momentum); setSub('sub-labor', labor, true);
+    setSub('sub-liquidity', liquidity); setSub('sub-credit', credit); setSub('sub-sentiment', sentiment);
+    renderBlowOff(blowOff);
+    const boDesc = blowOff >= 75 ? 'All Zeberg conditions active — Titanic hitting the iceberg' :
+                   blowOff >= 50 ? 'Partial setup — Zeberg scenario building' :
+                   blowOff >= 25 ? 'Early signals — no full pattern yet' :
+                                   'No Zeberg blow-off setup present';
+    document.getElementById('blowOffDesc').textContent = boDesc;
+    const vix = latest('VIXCLS'), t2 = latest('T10Y2Y');
+    const conds = [
+        { label: 'Momentum weakening (not broken)',   met: momentum >= 28 && momentum <= 68, val: momentum.toFixed(0) },
+        { label: 'Labor cracking (not broken)',        met: labor >= 18 && labor <= 65,       val: labor.toFixed(0)+' stress' },
+        { label: 'Liquidity still supportive',         met: liquidity > 48,                   val: liquidity.toFixed(0) },
+        { label: 'VIX < 22 — complacency/euphoria',   met: vix !== null && vix < 22,          val: vix !== null ? 'VIX '+vix.toFixed(1) : '?' },
+        { label: 'Yield curve stress (T10Y2Y < 0.6)', met: t2 !== null && t2 < 0.6,           val: t2 !== null ? t2.toFixed(2)+'%' : '?' },
+    ];
+    document.getElementById('blowOffConditions').innerHTML = conds.map(c =>
+        `<div class="check-row ${c.met ? 'check-yes' : 'check-no'}"><span>${c.met ? '✓' : '○'}</span><span class="flex-1">${c.label}</span><span style="color:#4b5563;font-size:10px">${c.val}</span></div>`
+    ).join('');
+}
+
+async function refreshAll() {
+    const key = localStorage.getItem('fredApiKey');
+    if (!key) { document.getElementById('noApiWarning').classList.remove('hidden'); return; }
+    document.getElementById('noApiWarning').classList.add('hidden');
+    document.getElementById('statusBanner').classList.add('hidden');
+    const btn = document.getElementById('refreshBtn');
+    btn.textContent = '⟳ Loading...'; btn.disabled = true;
+    Object.keys(SERIES).forEach(id => {
+        const vEl = document.getElementById(`val-${id}`);
+        if (vEl) { vEl.textContent = '…'; vEl.style.color = '#4b5563'; }
+        const sEl = document.getElementById(`sig-${id}`);
+        if (sEl) { sEl.textContent = 'loading'; sEl.className = 'badge badge-gray mt-1'; }
+    });
+    const ids = Object.keys(SERIES), failed = [], succeeded = [];
+    await Promise.allSettled(ids.map(async id => {
+        const result = await fetchSeries(id);
+        if (!result.ok) { failed.push({ id, error: result.error }); updateCardError(id, result.error); return; }
+        const proc = process(id, result.data);
+        if (!proc || !proc.length) { failed.push({ id, error: 'Processing failed (not enough data?)' }); updateCardError(id, 'Processing failed'); return; }
+        store[id] = proc; succeeded.push(id); updateCard(id, proc);
+    }));
+    if (failed.length === ids.length) {
+        showBanner('error', `All ${ids.length} FRED series failed`, `First error: "${failed[0]?.error || 'Unknown'}" — Check your API key, or open via a web server (⚙).`);
+    } else if (failed.length > 0) {
+        showBanner('warning', `${succeeded.length} of ${ids.length} series loaded — ${failed.length} failed`, `Failed: ${failed.map(f => f.id).join(', ')}`);
+    } else {
+        showBanner('success', `All ${succeeded.length} series loaded`, '');
+        setTimeout(() => document.getElementById('statusBanner').classList.add('hidden'), 3000);
+    }
+    const sc = computeScores();
+    updateRegime(sc);
+    document.getElementById('lastUpdated').textContent = 'Updated: ' + new Date().toLocaleString('en-US');
+    btn.textContent = '↻ REFRESH'; btn.disabled = false;
+}
+
+function showApiModal() {
+    document.getElementById('apiModal').classList.remove('hidden');
+    const k = localStorage.getItem('fredApiKey');
+    if (k) document.getElementById('apiKeyInput').value = k;
+}
+function closeApiModal() { document.getElementById('apiModal').classList.add('hidden'); }
+function saveApiKey() {
+    const k = document.getElementById('apiKeyInput').value.trim();
+    if (!k) { alert('Please enter an API key.'); return; }
+    localStorage.setItem('fredApiKey', k);
+    closeApiModal();
+    refreshAll();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (!localStorage.getItem('fredApiKey')) {
+        document.getElementById('noApiWarning').classList.remove('hidden');
+    } else {
+        refreshAll();
+    }
+});
+</script>
+</body>
+</html>
